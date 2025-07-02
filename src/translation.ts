@@ -1,6 +1,4 @@
-import JSZip from 'jszip';
 import * as cheerio from 'cheerio';
-import OpenAI from 'openai';
 import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
@@ -48,10 +46,15 @@ export const translateEpub = async ({
   getPausePromise,
 }: TranslateEpubParams): Promise<Blob> => {
   setStatus('Initializing...');
-  const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true, baseURL: baseUrl || undefined });
+  const OpenaiClient = await import('openai');
+  const openai = new OpenaiClient.OpenAI({ apiKey, dangerouslyAllowBrowser: true, baseURL: baseUrl || undefined });
   try {
     setStatus('Unpacking EPUB...');
+
+    // Динамический импорт jszip
+    const JSZip = await import('jszip');
     const zip = await JSZip.loadAsync(epubFile);
+
 
     const containerFile = await zip.file('META-INF/container.xml')?.async('string');
     if (!containerFile) throw new Error('META-INF/container.xml not found.');
@@ -79,6 +82,8 @@ export const translateEpub = async ({
       const idref = $opf(el).attr('idref');
       return manifest.get(idref || '');
     }).get().filter(Boolean) as string[];
+
+
 
     for (const filePath of spine) {
       setStatus(`Processing: ${filePath}`);
