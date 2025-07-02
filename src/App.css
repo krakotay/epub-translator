@@ -1,0 +1,185 @@
+/* General App Layout */
+.App {
+  max-width: 1200px; /* Increase max-width to accommodate side-by-side layout */
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  font-family: sans-serif;
+}
+
+.App-header {
+  text-align: center;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 1rem;
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  color: #333;
+}
+
+.App-header p {
+  color: #666;
+}
+
+main {
+  display: flex;
+  flex-direction: row;
+  gap: 2rem;
+  align-items: flex-start; /* Align items to the top */
+}
+
+.settings-column,
+.preview-column {
+  flex: 1; /* Each column takes equal width */
+  min-width: 0; /* Allow content to shrink */
+}
+
+.App {
+  max-width: 1200px; /* Increase max-width to accommodate side-by-side layout */
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  font-family: sans-serif;
+}
+
+/* Settings Section */
+.settings {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background-color: #fff;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.setting-item label {
+  font-weight: bold;
+  color: #555;
+}
+
+.setting-item input[type="password"],
+.setting-item input[type="file"],
+.setting-item input[type="number"] {
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.radio-group {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.radio-group label {
+  font-weight: normal;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Actions Section */
+.actions {
+  text-align: center;
+}
+
+.actions button {
+  padding: 1rem 2rem;
+  font-size: 1.2rem;
+  color: #fff;
+  background-color: #007bff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.actions button:hover {
+  background-color: #0056b3;
+}
+
+.actions button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Status Section */
+.status {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+  white-space: pre-wrap;
+}
+
+.drag-drop-area {
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+}
+
+.drag-drop-area.dragging {
+  border-color: #007bff;
+  background-color: #e9f5ff;
+}
+
+.real-time-preview {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.real-time-preview h2 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.preview-content {
+  max-height: 400px; /* Limit height to prevent overflow */
+  overflow-y: auto; /* Enable scrolling for long content */
+  border: 1px solid #eee;
+  padding: 10px;
+  background-color: #fff;
+}
+
+.status h2 {
+  margin-top: 0;
+  color: #333;
+}
+
+.status p {
+  font-size: 1.1rem;
+  color: #555;
+  word-wrap: break-word;
+}
+
+/* Bilingual translated paragraph style */
+.translated-bilingual {
+  color: #0056b3; /* A distinct color to show the translation */
+  font-style: italic;
+  margin-top: 0.5em;
+  border-left: 3px solid #007bff;
+  padding-left: 1em;
+}
