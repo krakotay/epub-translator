@@ -192,7 +192,7 @@ function App() {
     <>
       <div className="App">
         <header className="App-header">
-          <h1>EPUB Translator v 0.1.0-alpha</h1>
+          <h1>EPUB Translator 0.1.0-alpha</h1>
           <p>Translate EPUB books using OpenAI</p>
         </header>
         <main className="App-main">
