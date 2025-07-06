@@ -18,7 +18,6 @@ function App() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [isDragging, setIsDragging] = useState(false); // New state for drag and drop
-  const [isPaused, setIsPaused] = useState(false);
   const [currentProgress, setCurrentProgress] = useState({
     currentFile: '',
     fileIndex: 0,
@@ -26,7 +25,6 @@ function App() {
     status: '',
   });
   const [translatedEpubBlob, setTranslatedEpubBlob] = useState<Blob | null>(null);
-  const [pauseResolver, setPauseResolver] = useState<(() => void) | null>(null);
   const [currentHtmlContent, setCurrentHtmlContent] = useState<string | null>(null);
   const [originalEpubPreviewReady, setOriginalEpubPreviewReady] = useState(false); // New state to indicate if original EPUB is ready for preview
 
@@ -138,13 +136,7 @@ function App() {
           setTranslatedEpubBlob(progress.translatedBlob);
           setCurrentHtmlContent(progress.htmlContent);
         },
-        getPausePromise: () => {
-          return new Promise<void>((resolve) => {
-            setPauseResolver(() => resolve);
-            setIsPaused(true);
-          });
-      },
-    });
+      });
 
     // Handle the newEpubBlob after successful translation
     const downloadUrl = URL.createObjectURL(newEpubBlob);
@@ -163,21 +155,15 @@ function App() {
       setStatus('Translation cancelled.');
       setTranslatedEpubBlob(null); // Clear on cancellation
       setCurrentHtmlContent(null); // Clear on cancellation
-      setIsPaused(false);
-      setPauseResolver(null);
 
     } else {
       setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setTranslatedEpubBlob(null); // Clear on error
       setCurrentHtmlContent(null); // Clear on error
-      setIsPaused(false);
-      setPauseResolver(null);
     }
   } finally {
     setIsTranslating(false);
     setAbortController(null);
-    setIsPaused(false);
-    setPauseResolver(null);
     
     setCurrentProgress({
         currentFile: '',
@@ -192,7 +178,7 @@ function App() {
     <>
       <div className="App">
         <header className="App-header">
-          <h1>EPUB Translator 0.1.0-alpha</h1>
+          <h1>EPUB Translator 0.1.1-alpha</h1>
           <p>Translate EPUB books using OpenAI</p>
         </header>
         <main className="App-main">
@@ -292,24 +278,10 @@ function App() {
                 </div>
               </div>
               <div className="actions">
-                <button onClick={handleTranslate} disabled={!apiKey || !epubFile || isTranslating || isPaused}>
+                <button onClick={handleTranslate} disabled={!apiKey || !epubFile || isTranslating}>
                   Translate
                 </button>
-                {isTranslating && !isPaused && (
-                  <button onClick={() => setIsPaused(true)}>
-                    Pause
-                  </button>
-                )}
-                {isTranslating && isPaused && pauseResolver && (
-                  <button onClick={() => {
-                    pauseResolver();
-                    setPauseResolver(null);
-                    setIsPaused(false);
-                  }}>
-                    Resume
-                  </button>
-                )}
-                <button onClick={() => abortController?.abort()} disabled={!isTranslating || !abortController}>
+                <button onClick={() => abortController?.abort()} disabled={!isTranslating}>
                   Cancel
                 </button>
               </div>

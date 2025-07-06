@@ -24,7 +24,6 @@ interface TranslateEpubParams {
     translatedBlob: Blob | null;
     htmlContent: string | null;
   }) => void;
-  getPausePromise?: () => Promise<void>;
 }
 
 // Define the Zod schema for the translation response
@@ -43,7 +42,6 @@ export const translateEpub = async ({
   modelName,
   abortSignal,
   onProgress,
-  getPausePromise,
 }: TranslateEpubParams): Promise<Blob> => {
   setStatus('Initializing...');
   const OpenaiClient = await import('openai');
@@ -138,11 +136,6 @@ export const translateEpub = async ({
           translatedBlob: currentEpubBlob,
           htmlContent: $content('body').html(),
         });
-      }
-
-      // Check for pause signal
-      if (getPausePromise) {
-        await getPausePromise();
       }
     }
 
