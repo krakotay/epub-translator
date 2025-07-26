@@ -1,15 +1,22 @@
+// translation.ts
 import * as cheerio from 'cheerio';
-import { zodResponseFormat } from "openai/helpers/zod";
-import { z } from "zod";
+import { zodResponseFormat } from 'openai/helpers/zod';
+import { z } from 'zod';
+import type { Element as DomElement } from 'domhandler';
 
-const SYSTEM_PROMPT = "You are a book translator.";
+const SYSTEM_PROMPT = 'You are a book translator.';
 
-type TranslationMode = 'replace' | 'bilingual';
+// Главный лимит по символам в одном чанке
+const MAX_CHARS_PER_CHUNK = 20000;
+// Какие блоки считаем «текстовыми»
+const BLOCK_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote';
+
+export type TranslationMode = 'replace' | 'bilingual';
 
 interface TranslateEpubParams {
   apiKey: string;
   epubFile: File;
-  chunkSize: number;
+  chunkSize: number; // 0 = без лимита по числу абзацев, режем только по символам
   translationMode: TranslationMode;
   setStatus: (status: string) => void;
   baseUrl?: string;
@@ -26,10 +33,71 @@ interface TranslateEpubParams {
   }) => void;
 }
 
-// Define the Zod schema for the translation response
+// Схема ответа
 const TranslationResponse = z.object({
   translation_paragraphs: z.array(z.string()),
 });
+
+// ---------- helpers ----------
+
+// имя тега
+function tagName(node: DomElement): string {
+  // domhandler Element.name
+  // @ts-ignore
+  return (node && (node as any).name ? String((node as any).name).toLowerCase() : '').toLowerCase();
+}
+
+// выбрать «листовые» блочные узлы (не контейнеры с дочерними блоками)
+function selectLeafBlocks($: cheerio.CheerioAPI): DomElement[] {
+  const all = $(BLOCK_SELECTOR).toArray() as DomElement[];
+  const leaves = all.filter((el) => {
+    const cls = $(el).attr('class') || '';
+    if (/\btranslated-bilingual\b/.test(cls)) return false; // не трогаем уже вставленные
+    // если внутри есть другие блок‑элементы — это контейнер, пропускаем
+    return $(el).find(BLOCK_SELECTOR).length === 0;
+  });
+  return leaves;
+}
+
+// нормализовать текст, чтобы собирать чанки по символам честно
+function normalizeText(s: string): string {
+  return s.replace(/\u00A0|&nbsp;|&#xa0;/g, ' ').replace(/\s+\n/g, '\n').trim();
+}
+
+// вычистить блочные теги на случай, если модель всё же прислала HTML
+function stripBlockTags(html: string): string {
+  return html
+    .replace(/<\/?(p|div|h[1-6]|li|blockquote|ul|ol)>/gi, '')
+    .replace(/\s+\n/g, '\n')
+    .trim();
+}
+
+// вставка «билингв»: аккуратно, учитывая тип узла
+function insertBilingual($: cheerio.CheerioAPI, node: DomElement, translated: string) {
+  const t = tagName(node);
+  const safe = stripBlockTags(translated);
+  if (t === 'li') {
+    // внутри li, чтобы не ломать структуру списка/нумерацию
+    $(node).append(`<div class="translated-bilingual">${safe}</div>`);
+  } else if (t === 'blockquote') {
+    // внутрь цитаты, чтобы сохранить вертикальную линию/оформление
+    $(node).append(`<p class="translated-bilingual">${safe}</p>`);
+  } else if (/^h[1-6]$/.test(t)) {
+    // после заголовка отдельным блоком
+    $(node).after(`<div class="translated-bilingual">${safe}</div>`);
+  } else {
+    // обычный параграф — соседний <p>
+    $(node).after(`<p class="translated-bilingual">${safe}</p>`);
+  }
+}
+
+// замена содержимого узла переводом (safe)
+function replaceBlock($: cheerio.CheerioAPI, node: DomElement, translated: string) {
+  const safe = stripBlockTags(translated);
+  $(node).html(safe);
+}
+
+// ---------- main ----------
 
 export const translateEpub = async ({
   apiKey,
@@ -45,14 +113,16 @@ export const translateEpub = async ({
 }: TranslateEpubParams): Promise<Blob> => {
   setStatus('Initializing...');
   const OpenaiClient = await import('openai');
-  const openai = new OpenaiClient.OpenAI({ apiKey, dangerouslyAllowBrowser: true, baseURL: baseUrl || undefined });
+  const openai = new OpenaiClient.OpenAI({
+    apiKey,
+    dangerouslyAllowBrowser: true,
+    baseURL: baseUrl || undefined,
+  });
+
   try {
     setStatus('Unpacking EPUB...');
-
-    // Динамический импорт jszip
     const JSZip = await import('jszip');
     const zip = await JSZip.loadAsync(epubFile);
-
 
     const containerFile = await zip.file('META-INF/container.xml')?.async('string');
     if (!containerFile) throw new Error('META-INF/container.xml not found.');
@@ -76,56 +146,131 @@ export const translateEpub = async ({
       }
     });
 
-    const spine = $opf('spine > itemref').map((_, el) => {
-      const idref = $opf(el).attr('idref');
-      return manifest.get(idref || '');
-    }).get().filter(Boolean) as string[];
-
-
+    const spine = $opf('spine > itemref')
+      .map((_, el) => {
+        const idref = $opf(el).attr('idref');
+        return manifest.get(idref || '');
+      })
+      .get()
+      .filter(Boolean) as string[];
 
     for (const filePath of spine) {
       setStatus(`Processing: ${filePath}`);
       const fileContent = await zip.file(filePath)?.async('string');
+      if (!fileContent) continue;
 
       const $content = cheerio.load(fileContent, { xmlMode: true });
-      const paragraphs = $content('p').toArray();
-      if (paragraphs.length === 0) continue;
 
-      const chunks = [];
-      for (let i = 0; i < paragraphs.length; i += chunkSize) {
-        chunks.push(paragraphs.slice(i, i + chunkSize));
+      // 1) берём только листовые блок‑элементы
+      const leafNodes = selectLeafBlocks($content);
+      if (leafNodes.length === 0) continue;
+
+      // 2) текст каждого блока
+      const leafTexts = leafNodes.map((n) => normalizeText($content(n).text()));
+
+      // 3) отбрасываем совсем пустые
+      const filtered: { node: DomElement; text: string }[] = [];
+      for (let i = 0; i < leafNodes.length; i++) {
+        if (leafTexts[i].length > 0) filtered.push({ node: leafNodes[i], text: leafTexts[i] });
+      }
+      if (filtered.length === 0) continue;
+
+      // 4) чанкование: главный лимит — по символам; лимит по числу абзацев — только если > 0
+      type Chunk = { nodes: DomElement[]; texts: string[]; charCount: number };
+      const MAX_PARAS_PER_CHUNK =
+        Number.isFinite(chunkSize) && chunkSize > 0 ? chunkSize : Number.POSITIVE_INFINITY;
+
+      const chunks: Chunk[] = [];
+      let cur: Chunk = { nodes: [], texts: [], charCount: 0 };
+
+      for (let i = 0; i < filtered.length; i++) {
+        const { node, text } = filtered[i];
+        const willExceedByChars =
+          cur.charCount > 0 && cur.charCount + text.length + 2 > MAX_CHARS_PER_CHUNK;
+        const willExceedByCount = cur.nodes.length >= MAX_PARAS_PER_CHUNK;
+
+        if ((willExceedByChars || willExceedByCount) && cur.nodes.length > 0) {
+          console.log('PUSH CHUNK', { filePath, charCount: cur.charCount, paraCount: cur.nodes.length });
+          chunks.push(cur);
+          cur = { nodes: [], texts: [], charCount: 0 };
+        }
+
+        cur.nodes.push(node);
+        cur.texts.push(text);
+        cur.charCount += text.length + 2;
+
+        if (cur.charCount >= MAX_CHARS_PER_CHUNK) {
+          console.log('PUSH CHUNK (oversize)', { filePath, charCount: cur.charCount, paraCount: cur.nodes.length });
+          chunks.push(cur);
+          cur = { nodes: [], texts: [], charCount: 0 };
+        }
+      }
+      if (cur.nodes.length > 0) {
+        console.log('PUSH CHUNK (tail)', { filePath, charCount: cur.charCount, paraCount: cur.nodes.length });
+        chunks.push(cur);
       }
 
+      // 5) перевод чанков с контекстом (пред/след)
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         setStatus(`Translating chunk ${i + 1}/${chunks.length} of ${filePath}...`);
-        const originalTexts = chunk.map(p => $content(p).text()).join('\n\n').replace(/&#xa0;/g, ' ');
 
-        const userContent = `\`\`\`\n${originalTexts}\n\n\`\`\`\n\n${targetLanguage}`;
-        const completion = await openai.chat.completions.parse({
-          model: modelName,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userContent }
-          ],
-          response_format: zodResponseFormat(TranslationResponse, "translation_paragraphs"),
-        }, { signal: abortSignal?.signal }
+        const originalTexts = chunk.texts.join('\n\n');
+        const prevTexts = i > 0 ? chunks[i - 1].texts.join('\n\n') : '';
+        const nextTexts = i < chunks.length - 1 ? chunks[i + 1].texts.join('\n\n') : '';
+        const contextTexts = [prevTexts, nextTexts].filter(Boolean).join('\n\n');
+
+        const contextContent = contextTexts
+          ? `This is context:\n\`\`\`\n${contextTexts}\n\`\`\`\n\nTranslate following text`
+          : '';
+
+        console.log('TRANSLATE CHUNK', {
+          filePath,
+          i,
+          of: chunks.length,
+          charCount: originalTexts.length,
+          paraCount: chunk.texts.length,
+        });
+
+        // Жёстко просим простой текст без HTML
+        const userContent =
+          `Return JSON that matches the schema and make sure "translation_paragraphs" has exactly ${chunk.texts.length} items (one per input paragraph, keep order). ` +
+          `Each item MUST be plain text without any HTML tags. ` +
+          `\n\`\`\`\n${originalTexts}\n\`\`\`\n\n${targetLanguage}\n\n`;
+
+        const messages: Array<{ role: 'system' | 'user'; content: string }> = [
+          { role: 'system', content: SYSTEM_PROMPT },
+        ];
+        if (contextContent) messages.push({ role: 'user', content: contextContent });
+        messages.push({ role: 'user', content: userContent });
+
+        const completion = await openai.chat.completions.parse(
+          {
+            model: modelName,
+            messages,
+            response_format: zodResponseFormat(TranslationResponse, 'translation_paragraphs'),
+          },
+          { signal: abortSignal?.signal }
         );
 
-        const translatedParagraphs = completion.choices[0].message.parsed?.translation_paragraphs || [];
+        const translatedParagraphs =
+          completion.choices[0].message.parsed?.translation_paragraphs || [];
 
-        chunk.forEach((p, j) => {
-          const translatedHtml = translatedParagraphs[j] || '';
+        // 6) применяем перевод
+        chunk.nodes.forEach((node, j) => {
+          const t = translatedParagraphs[j] ?? '';
           if (translationMode === 'replace') {
-            $content(p).html(translatedHtml);
-          } else { // bilingual
-            $content(p).after(`<p class="translated-bilingual">${translatedHtml}</p>`);
+            replaceBlock($content, node, t);
+          } else {
+            insertBilingual($content, node, t);
           }
         });
       }
-      zip.file(filePath, $content.html({ xmlMode: true }));
 
-      // Call onProgress after each file is processed
+      // 7) сохраняем файл обратно
+      zip.file(filePath, $content.html({ xmlMode: true }) || '');
+
+      // прогресс
       if (onProgress) {
         const currentEpubBlob = await zip.generateAsync({ type: 'blob' });
         onProgress({
@@ -141,9 +286,8 @@ export const translateEpub = async ({
 
     const newEpubBlob = await zip.generateAsync({ type: 'blob' });
     return newEpubBlob;
-
   } catch (error) {
     console.error('Error during translation:', error);
-    throw error; // Re-throw the error so App.tsx can catch it
+    throw error;
   }
 };

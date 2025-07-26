@@ -9,11 +9,11 @@ function App() {
   // State for the user inputs
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('openaiApiKey') || '');
   const [epubFile, setEpubFile] = useState<File | null>(null);
-  const [chunkSize, setChunkSize] = useState(10);
+  const [chunkSize, setChunkSize] = useState(0);
   const [translationMode, setTranslationMode] = useState<TranslationMode>('replace');
-  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('openaiBaseUrl') || ''); // New state for base URL
+  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('openaiBaseUrl') || 'https://openrouter.ai/api/v1'); // New state for base URL
   const [targetLanguage, setTargetLanguage] = useState(() => localStorage.getItem('targetLanguage') || 'Translate this text into English'); // New state for target language
-  const [modelName, setModelName] = useState('gpt-4.1-nano'); // New state for model name
+  const [modelName, setModelName] = useState('google/gemini-2.5-flash-lite'); // New state for model name
   const [status, setStatus] = useState('Ready'); // To display progress
   const [isTranslating, setIsTranslating] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
